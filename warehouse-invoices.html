@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="The Warehouse">
+<title>The Warehouse - Invoice System</title>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyAY6asffT5bdpAohSr4fosDB_uHHuFPBcI",
+    authDomain: "the-warehouse-c9a1a.firebaseapp.com",
+    projectId: "the-warehouse-c9a1a",
+    storageBucket: "the-warehouse-c9a1a.firebasestorage.app",
+    messagingSenderId: "34908251679",
+    appId: "1:34908251679:web:9bd6168710f9a8e462172a"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const dataRef = doc(db, "warehouse", "main");
+
+  // Expose to the rest of the app (loaded as a regular script below)
+  window.__firestore = { db, dataRef, getDoc, setDoc, onSnapshot };
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1f232c; --border:#2a2f3a;
+    --text:#e8eaed; --muted:#9aa3b2; --accent:#e8b04b; --accent2:#4bb3e8;
+    --green:#3ecf8e; --red:#e85b5b; --yellow:#e8b04b;
+    font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{background:var(--bg); color:var(--text); margin:0; padding:20px; min-height:100vh;}
+  h1{font-size:20px; margin:0 0 4px 0;}
+  .sub{color:var(--muted); font-size:13px; margin-bottom:18px;}
+  .tabs{display:flex; gap:8px; margin-bottom:18px; flex-wrap:wrap;}
+  .tab{padding:9px 16px; background:var(--panel); border:1px solid var(--border); border-radius:8px; cursor:pointer; font-size:14px; color:var(--muted);}
+  .tab.active{background:var(--accent); color:#1a1300; border-color:var(--accent); font-weight:600;}
+  .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px;}
+  .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center;}
+  input, select{background:var(--panel2); border:1px solid var(--border); color:var(--text); padding:9px 10px; border-radius:8px; font-size:14px;}
+  input:focus, select:focus{outline:1px solid var(--accent2);}
+  button{background:var(--accent); color:#1a1300; border:none; padding:9px 16px; border-radius:8px; cursor:pointer; font-size:14px; font-weight:600;}
+  button.secondary{background:var(--panel2); color:var(--text); border:1px solid var(--border);}
+  button.danger{background:var(--red); color:#fff;}
+  button.small{padding:6px 10px; font-size:12px;}
+  button:disabled{opacity:0.5; cursor:not-allowed;}
+  table{width:100%; border-collapse:collapse; margin-top:10px; font-size:13px;}
+  th, td{padding:10px 8px; text-align:left; border-bottom:1px solid var(--border);}
+  th{color:var(--muted); font-weight:600; font-size:12px;}
+  tr:hover{background:var(--panel2);}
+  .badge{padding:4px 10px; border-radius:20px; font-size:12px; font-weight:600; display:inline-block;}
+  .badge.paid{background:rgba(62,207,142,0.15); color:var(--green);}
+  .badge.unpaid{background:rgba(232,176,75,0.15); color:var(--yellow);}
+  .badge.overdue{background:rgba(232,91,91,0.15); color:var(--red);}
+  .stats{display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px;}
+  .stat{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px 20px; flex:1; min-width:140px;}
+  .stat .num{font-size:24px; font-weight:700;}
+  .stat .lbl{color:var(--muted); font-size:12px; margin-top:4px;}
+  .empty{color:var(--muted); text-align:center; padding:30px; font-size:14px;}
+  .modal-bg{position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:50;}
+  .modal{background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:22px; width:min(420px, 92vw);}
+  .modal h3{margin-top:0;}
+  .field{margin-bottom:12px; display:flex; flex-direction:column; gap:5px;}
+  .field label{font-size:12px; color:var(--muted);}
+  .field input, .field select{width:100%;}
+  .modal-actions{display:flex; gap:8px; justify-content:flex-end; margin-top:16px;}
+  .toast{position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--panel2); border:1px solid var(--accent); color:var(--text); padding:10px 18px; border-radius:10px; font-size:13px; z-index:100; opacity:0; transition:opacity 0.3s;}
+  .toast.show{opacity:1;}
+  .loading{color:var(--muted); font-size:13px; padding:10px;}
+  .month-nav{display:flex; align-items:center; gap:10px;}
+  .month-nav button{padding:6px 10px;}
+  .month-label{font-size:16px; font-weight:600; min-width:130px; text-align:center;}
+  @media (max-width:640px){
+    table, thead, tbody, th, td, tr{display:block;}
+    thead{display:none;}
+    tr{border:1px solid var(--border); border-radius:10px; margin-bottom:10px; padding:8px;}
+    td{border:none; display:flex; justify-content:space-between; padding:6px 4px;}
+    td::before{content:attr(data-label); color:var(--muted); font-size:12px;}
+  }
+</style>
+</head>
+<body>
+
+<div id="pin-gate" style="min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px;">
+  <div style="font-size:40px;">🔒</div>
+  <div style="font-size:16px; color:var(--muted);">The Warehouse</div>
+  <input id="pin-input" type="password" inputmode="numeric" maxlength="8" placeholder="Enter PIN" style="text-align:center; font-size:20px; letter-spacing:4px; width:220px;">
+  <button onclick="checkPin()" style="width:220px;">Enter</button>
+  <div id="pin-error" style="color:var(--red); font-size:13px; height:16px;"></div>
+</div>
+
+<div id="app-root" style="display:none;">
+
+<h1>🏬 The Warehouse — Invoice Tracking System</h1>
+<div class="sub" id="subtitle">Loading data...</div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="dashboard">Invoice Dashboard</div>
+  <div class="tab" data-tab="customers">Customers</div>
+  <div class="tab" data-tab="settings">Settings</div>
+</div>
+
+<div id="dashboard" class="tab-content"></div>
+<div id="customers" class="tab-content" style="display:none;"></div>
+<div id="settings" class="tab-content" style="display:none;"></div>
+
+<div id="toast" class="toast"></div>
+
+</div>
+
+<script>
+const APP_PIN = "2580"; // change this to whatever PIN you want
+const PIN_SESSION_KEY = "warehouse_pin_ok";
+
+function checkPin(){
+  const val = document.getElementById('pin-input').value.trim();
+  if(val === APP_PIN){
+    sessionStorage.setItem(PIN_SESSION_KEY, "1");
+    unlockApp();
+  } else {
+    document.getElementById('pin-error').textContent = 'Wrong PIN, try again';
+    document.getElementById('pin-input').value = '';
+  }
+}
+
+document.getElementById('pin-input').addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter') checkPin();
+});
+
+function unlockApp(){
+  document.getElementById('pin-gate').style.display = 'none';
+  document.getElementById('app-root').style.display = 'block';
+  loadData();
+}
+</script>
+<script>
+let customers = [];
+let invoices = {}; // { "YYYY-MM": [ {customerId, status, paidDate, paidAmount, lateFeeApplied} ] }
+let settings = { gracePeriodDays: 5, companyName: "The Warehouse", companyPhone: "", companyAddress: "", floors: [] };
+let currentMonth = new Date().toISOString().slice(0,7);
+let dataReady = false;
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+const STORAGE_PREFIX = 'warehouse_app_';
+let unsubscribeSync = null;
+let isSyncing = false; // true while we're applying a remote update, to avoid write-loops
+let saveTimer = null;
+
+async function loadData(){
+  // 1) Load whatever is cached locally first (works instantly, works offline)
+  try{
+    const c = localStorage.getItem(STORAGE_PREFIX+'customers');
+    customers = c ? JSON.parse(c) : [];
+  }catch(e){ customers = []; }
+  try{
+    const i = localStorage.getItem(STORAGE_PREFIX+'invoices');
+    invoices = i ? JSON.parse(i) : {};
+  }catch(e){ invoices = {}; }
+  try{
+    const s = localStorage.getItem(STORAGE_PREFIX+'settings');
+    if(s) settings = {...settings, ...JSON.parse(s)};
+  }catch(e){}
+  dataReady = true;
+  document.getElementById('subtitle').textContent = `${customers.length} customers registered`;
+  renderAll();
+
+  // 2) Connect to Firestore and keep everything in sync live
+  if(window.__firestore){
+    connectFirestore();
+  } else {
+    // firebase module script hasn't finished loading yet, retry shortly
+    setTimeout(loadData, 300);
+  }
+}
+
+function connectFirestore(){
+  if(unsubscribeSync) return; // already connected
+  const { dataRef, onSnapshot, getDoc, setDoc } = window.__firestore;
+
+  unsubscribeSync = onSnapshot(dataRef, (snap)=>{
+    if(!snap.exists()){
+      // First time ever: push whatever we have locally up to Firestore
+      setDoc(dataRef, { customers, invoices, settings, updatedAt: new Date().toISOString() });
+      return;
+    }
+    const data = snap.data();
+    isSyncing = true;
+    customers = data.customers || [];
+    invoices = data.invoices || {};
+    settings = {...settings, ...(data.settings||{})};
+    // keep local cache fresh for offline use
+    localStorage.setItem(STORAGE_PREFIX+'customers', JSON.stringify(customers));
+    localStorage.setItem(STORAGE_PREFIX+'invoices', JSON.stringify(invoices));
+    localStorage.setItem(STORAGE_PREFIX+'settings', JSON.stringify(settings));
+    document.getElementById('subtitle').textContent = `${customers.length} customers registered · Synced ✅`;
+    renderAll();
+    isSyncing = false;
+  }, (err)=>{
+    document.getElementById('subtitle').textContent = `${customers.length} customers registered · Offline (no internet)`;
+  });
+}
+
+function pushToCloud(){
+  // debounce so rapid successive edits don't spam Firestore
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async ()=>{
+    if(isSyncing || !window.__firestore) return;
+    try{
+      await window.__firestore.setDoc(window.__firestore.dataRef, {
+        customers, invoices, settings, updatedAt: new Date().toISOString()
+      });
+    }catch(e){
+      toast('⚠️ Sync failed, saved locally and will sync when connection returns');
+    }
+  }, 250);
+}
+
+async function saveCustomers(){
+  try{ localStorage.setItem(STORAGE_PREFIX+'customers', JSON.stringify(customers)); }
+  catch(e){}
+  pushToCloud();
+}
+async function saveInvoices(){
+  try{ localStorage.setItem(STORAGE_PREFIX+'invoices', JSON.stringify(invoices)); }
+  catch(e){}
+  pushToCloud();
+}
+async function saveSettings(){
+  try{ localStorage.setItem(STORAGE_PREFIX+'settings', JSON.stringify(settings)); }
+  catch(e){}
+  pushToCloud();
+}
+
+// ---------- Tabs ----------
+document.querySelectorAll('.tab').forEach(tab=>{
+  tab.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    document.querySelectorAll('.tab-content').forEach(c=>c.style.display='none');
+    document.getElementById(tab.dataset.tab).style.display='block';
+  });
+});
+
+function renderAll(){
+  renderDashboard();
+  renderCustomers();
+  renderSettings();
+}
+
+// ---------- Dashboard ----------
+function ensureMonthInvoices(month){
+  if(!invoices[month]) invoices[month] = [];
+  const existingIds = new Set(invoices[month].map(x=>x.customerId));
+  let added = false;
+  customers.filter(c=>c.status !== 'left').forEach(c=>{
+    if(!existingIds.has(c.id)){
+      invoices[month].push({ customerId:c.id, status:'unpaid', paidDate:null, paidAmount:null });
+      added = true;
+    }
+  });
+  return added;
+}
+
+function monthLabel(month){
+  const [y,m] = month.split('-');
+  const names = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  return `${names[parseInt(m)-1]} ${y}`;
+}
+
+function issueDateOf(month){ return new Date(month+'-01T00:00:00'); }
+function dueDateOf(month){
+  const d = issueDateOf(month);
+  d.setDate(d.getDate() + settings.gracePeriodDays);
+  return d;
+}
+function isOverdue(month, inv){
+  if(inv.status === 'paid') return false;
+  const due = dueDateOf(month);
+  return new Date() > due;
+}
+
+function renderDashboard(){
+  const el = document.getElementById('dashboard');
+  if(!dataReady){ el.innerHTML = '<div class="loading">Loading...</div>'; return; }
+
+  ensureMonthInvoices(currentMonth);
+
+  const monthInvoices = invoices[currentMonth] || [];
+  const paidCount = monthInvoices.filter(i=>i.status==='paid').length;
+  const overdueCount = monthInvoices.filter(i=>isOverdue(currentMonth,i)).length;
+  const unpaidCount = monthInvoices.length - paidCount;
+  const totalDue = monthInvoices.reduce((sum,i)=>{
+    const c = customers.find(x=>x.id===i.customerId);
+    if(!c) return sum;
+    if(i.status==='paid') return sum;
+    return sum + c.fee;
+  },0);
+  const totalPaid = monthInvoices.reduce((sum,i)=>{
+    if(i.status!=='paid') return sum;
+    return sum + (i.paidAmount != null ? i.paidAmount : 0);
+  },0);
+
+  let html = `
+    <div class="card row" style="justify-content:space-between;">
+      <div class="month-nav">
+        <button class="secondary small" onclick="changeMonth(-1)">◀</button>
+        <div class="month-label">${monthLabel(currentMonth)}</div>
+        <button class="secondary small" onclick="changeMonth(1)">▶</button>
+      </div>
+      <div class="row">
+        <button onclick="regenerateMonth()" class="secondary">🔄 Refresh invoices for new customers</button>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="num">${customers.filter(c=>c.status !== 'left').length}</div><div class="lbl">Total Customers</div></div>
+      <div class="stat" style="border-color:var(--green)"><div class="num" style="color:var(--green)">${paidCount}</div><div class="lbl">Paid</div></div>
+      <div class="stat" style="border-color:var(--yellow)"><div class="num" style="color:var(--yellow)">${unpaidCount}</div><div class="lbl">Not Paid Yet</div></div>
+      <div class="stat" style="border-color:var(--red)"><div class="num" style="color:var(--red)">${overdueCount}</div><div class="lbl">Overdue</div></div>
+      <div class="stat" style="border-color:var(--green)"><div class="num" style="color:var(--green)">${totalPaid.toLocaleString()}</div><div class="lbl">Total Paid (EGP)</div></div>
+      <div class="stat"><div class="num">${totalDue.toLocaleString()}</div><div class="lbl">Total Due to Collect (EGP)</div></div>
+    </div>
+  `;
+
+  if(monthInvoices.length === 0){
+    html += `<div class="card empty">No customers yet. Go to the "Customers" tab and add them first.</div>`;
+  } else {
+    html += `<div class="card"><table><thead><tr>
+      <th>Customer</th><th>Spaces</th><th>Monthly Rent</th><th>Status</th><th>Actions</th>
+    </tr></thead><tbody>`;
+    monthInvoices.slice().sort((a,b)=>{
+      const ca = customers.find(x=>x.id===a.customerId)?.name||'';
+      const cb = customers.find(x=>x.id===b.customerId)?.name||'';
+      return ca.localeCompare(cb);
+    }).forEach(inv=>{
+      const c = customers.find(x=>x.id===inv.customerId);
+      if(!c) return;
+      const overdue = isOverdue(currentMonth, inv);
+      const total = c.fee;
+      let statusBadge = '';
+      if(inv.status==='paid') statusBadge = `<span class="badge paid">✔ Paid</span>`;
+      else if(overdue) statusBadge = `<span class="badge overdue">⚠ Overdue</span>`;
+      else statusBadge = `<span class="badge unpaid">Pending</span>`;
+
+      html += `<tr>
+        <td data-label="Customer"><b>${c.name}</b><br><span style="color:var(--muted);font-size:11px">${c.phone||''}</span></td>
+        <td data-label="Spaces">${spacesSummary(c)}</td>
+        <td data-label="Rent">${c.fee.toLocaleString()} EGP</td>
+        <td data-label="Status">${statusBadge}</td>
+        <td data-label="Actions">
+          <div class="row" style="gap:6px;">
+            ${inv.status==='paid'
+              ? `<button class="secondary small" onclick="markUnpaid('${currentMonth}','${c.id}')">Undo</button>`
+              : `<button class="small" onclick="markPaid('${currentMonth}','${c.id}', ${total})">Mark Paid</button>`
+            }
+            <button class="secondary small" onclick="exportInvoicePDF('${currentMonth}','${c.id}')">📄 PDF</button>
+            ${c.phone ? `<button class="secondary small" style="color:#25D366;border-color:#25D366" onclick="sendWhatsApp('${currentMonth}','${c.id}')">📩 WhatsApp</button>` : ''}
+          </div>
+        </td>
+      </tr>`;
+    });
+    html += `</tbody></table></div>`;
+  }
+
+  el.innerHTML = html;
+}
+
+function changeMonth(delta){
+  const [y,m] = currentMonth.split('-').map(Number);
+  const d = new Date(y, m-1+delta, 1);
+  currentMonth = d.toISOString().slice(0,7);
+  renderDashboard();
+}
+
+function regenerateMonth(){
+  const added = ensureMonthInvoices(currentMonth);
+  saveInvoices();
+  renderDashboard();
+  toast(added ? '✅ Invoices added for new customers' : 'All invoices already exist');
+}
+
+async function markPaid(month, customerId, total){
+  const inv = invoices[month].find(i=>i.customerId===customerId);
+  if(!inv) return;
+  inv.status = 'paid';
+  inv.paidDate = new Date().toISOString().slice(0,10);
+  inv.paidAmount = total;
+  await saveInvoices();
+  renderDashboard();
+  toast('✅ Payment recorded');
+}
+
+async function markUnpaid(month, customerId){
+  const inv = invoices[month].find(i=>i.customerId===customerId);
+  if(!inv) return;
+  inv.status = 'unpaid';
+  inv.paidDate = null;
+  inv.paidAmount = null;
+  await saveInvoices();
+  renderDashboard();
+  toast('Payment undone');
+}
+
+function showConfirm(message, onConfirm){
+  const modalBg = document.createElement('div');
+  modalBg.className = 'modal-bg';
+  modalBg.innerHTML = `
+    <div class="modal">
+      <p style="margin-top:0;">${message}</p>
+      <div class="modal-actions">
+        <button class="secondary" id="confirm-cancel">Cancel</button>
+        <button class="danger" id="confirm-ok">Confirm</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modalBg);
+  modalBg.querySelector('#confirm-cancel').onclick = ()=> modalBg.remove();
+  modalBg.querySelector('#confirm-ok').onclick = ()=>{ modalBg.remove(); onConfirm(); };
+}
+
+// ---------- Storage Inventory (floors & sizes) ----------
+function getCustomerSpaces(c){
+  if(Array.isArray(c.spaces)) return c.spaces;
+  if(c.floor || c.size || c.unit) return [{floor:c.floor||'', size:c.size||'', unit:c.unit||''}];
+  return [];
+}
+
+function spacesSummary(c){
+  const spaces = getCustomerSpaces(c);
+  if(spaces.length===0) return '-';
+  return spaces.map(s=>{
+    const parts = [];
+    if(s.floor) parts.push(s.floor);
+    if(s.size) parts.push(s.size);
+    if(s.unit) parts.push('#'+s.unit);
+    return parts.join(' · ') || '-';
+  }).join('<br>');
+}
+
+function occupancyFor(floorName, size){
+  if(!floorName || !size) return 0;
+  let count = 0;
+  customers.filter(c=>c.status!=='left').forEach(c=>{
+    getCustomerSpaces(c).forEach(s=>{
+      if(s.floor===floorName && s.size===size) count++;
+    });
+  });
+  return count;
+}
+
+function renderAvailabilitySummary(){
+  const floors = settings.floors || [];
+  if(floors.length === 0) return '';
+  let html = `<div class="card"><h3>🏢 Storage Availability</h3><table><thead><tr>
+    <th>Floor</th><th>Small</th><th>Medium</th><th>Large</th>
+  </tr></thead><tbody>`;
+  floors.forEach(f=>{
+    const sSmall = f.small||0, sMedium = f.medium||0, sLarge = f.large||0;
+    const oSmall = occupancyFor(f.name,'Small'), oMedium = occupancyFor(f.name,'Medium'), oLarge = occupancyFor(f.name,'Large');
+    const cell = (occ,total)=>{
+      const avail = total - occ;
+      const color = avail <= 0 ? 'var(--red)' : (avail <= 1 ? 'var(--yellow)' : 'var(--green)');
+      return `<span style="color:${color}">${avail} free</span> <span style="color:var(--muted)">(${occ}/${total})</span>`;
+    };
+    html += `<tr>
+      <td data-label="Floor"><b>${f.name}</b></td>
+      <td data-label="Small">${cell(oSmall,sSmall)}</td>
+      <td data-label="Medium">${cell(oMedium,sMedium)}</td>
+      <td data-label="Large">${cell(oLarge,sLarge)}</td>
+    </tr>`;
+  });
+  html += `</tbody></table></div>`;
+  return html;
+}
+
+function floorRowHtml(f, idx){
+  const occSmall = occupancyFor(f.name, 'Small');
+  const occMedium = occupancyFor(f.name, 'Medium');
+  const occLarge = occupancyFor(f.name, 'Large');
+  return `
+    <div class="card floor-row" style="margin-bottom:10px;">
+      <div class="row" style="justify-content:space-between;">
+        <div class="field" style="flex:1; min-width:120px;"><label>Floor Name</label><input class="f-name" value="${f.name||''}"></div>
+        <button class="danger small" onclick="removeFloorRow(this)">Remove</button>
+      </div>
+      <div class="row">
+        <div class="field"><label>Small (${occSmall} used)</label><input class="f-small" type="number" min="0" value="${f.small||0}"></div>
+        <div class="field"><label>Medium (${occMedium} used)</label><input class="f-medium" type="number" min="0" value="${f.medium||0}"></div>
+        <div class="field"><label>Large (${occLarge} used)</label><input class="f-large" type="number" min="0" value="${f.large||0}"></div>
+      </div>
+    </div>
+  `;
+}
+
+function collectFloorsFromForm(){
+  const rows = document.querySelectorAll('#floors-list .floor-row');
+  return Array.from(rows).map(row=>({
+    name: row.querySelector('.f-name').value.trim(),
+    small: parseInt(row.querySelector('.f-small').value) || 0,
+    medium: parseInt(row.querySelector('.f-medium').value) || 0,
+    large: parseInt(row.querySelector('.f-large').value) || 0,
+  }));
+}
+
+function addFloorRow(){
+  setTimeout(()=>{
+    const list = document.getElementById('floors-list');
+    const placeholder = list.querySelector('p');
+    if(placeholder) placeholder.remove();
+    const idx = list.querySelectorAll('.floor-row').length;
+    const temp = document.createElement('div');
+    temp.innerHTML = floorRowHtml({name:'', small:0, medium:0, large:0}, idx);
+    const rowEl = temp.firstElementChild;
+    list.appendChild(rowEl);
+  }, 60);
+}
+
+function removeFloorRow(btn){
+  setTimeout(()=>{
+    const row = btn.closest('.floor-row');
+    if(row) row.remove();
+    const list = document.getElementById('floors-list');
+    if(list.querySelectorAll('.floor-row').length === 0){
+      list.innerHTML = '<p style="color:var(--muted); font-size:13px;">No floors added yet.</p>';
+    }
+  }, 60);
+}
+
+async function saveFloorsForm(){
+  settings.floors = collectFloorsFromForm().filter(f=>f.name);
+  await saveSettings();
+  toast('✅ Inventory saved');
+  renderSettings();
+  renderCustomers();
+}
+
+// ---------- Customers ----------
+function renderCustomers(){
+  const el = document.getElementById('customers');
+  if(!dataReady){ el.innerHTML = '<div class="loading">Loading...</div>'; return; }
+
+  const activeCustomers = customers.filter(c=>c.status !== 'left');
+  const formerCustomers = customers.filter(c=>c.status === 'left');
+
+  let html = renderAvailabilitySummary();
+  html += `
+    <div class="card row" style="justify-content:space-between;">
+      <div><b>${activeCustomers.length}</b> active customers</div>
+      <button onclick="openCustomerModal()">+ Add Customer</button>
+    </div>
+  `;
+
+  if(activeCustomers.length===0){
+    html += `<div class="card empty">No customers yet. Click "Add Customer" above.</div>`;
+  } else {
+    html += `<div class="card"><table><thead><tr>
+      <th>Name</th><th>Phone</th><th>Spaces</th><th>Entry Date</th><th>Monthly Rent</th><th>Actions</th>
+    </tr></thead><tbody>`;
+    activeCustomers.slice().sort((a,b)=>a.name.localeCompare(b.name)).forEach(c=>{
+      html += `<tr>
+        <td data-label="Name"><b>${c.name}</b></td>
+        <td data-label="Phone">${c.phone||'-'}</td>
+        <td data-label="Spaces">${spacesSummary(c)}</td>
+        <td data-label="Entry Date">${c.entryDate||'-'}</td>
+        <td data-label="Rent">${c.fee.toLocaleString()} EGP</td>
+        <td data-label="Actions">
+          <div class="row" style="gap:6px;">
+            <button class="secondary small" onclick="openCustomerModal('${c.id}')">Edit</button>
+            <button class="danger small" onclick="openLeaveModal('${c.id}')">Customer Left</button>
+          </div>
+        </td>
+      </tr>`;
+    });
+    html += `</tbody></table></div>`;
+  }
+
+  if(formerCustomers.length > 0){
+    html += `<div class="card">
+      <h3>📦 Former Customers (${formerCustomers.length})</h3>
+      <table><thead><tr>
+        <th>Name</th><th>Phone</th><th>Spaces</th><th>Entry Date</th><th>Left Date</th><th>Actions</th>
+      </tr></thead><tbody>`;
+    formerCustomers.slice().sort((a,b)=>(b.leftDate||'').localeCompare(a.leftDate||'')).forEach(c=>{
+      html += `<tr>
+        <td data-label="Name"><b>${c.name}</b></td>
+        <td data-label="Phone">${c.phone||'-'}</td>
+        <td data-label="Spaces">${spacesSummary(c)}</td>
+        <td data-label="Entry Date">${c.entryDate||'-'}</td>
+        <td data-label="Left Date">${c.leftDate||'-'}</td>
+        <td data-label="Actions">
+          <div class="row" style="gap:6px;">
+            <button class="secondary small" onclick="restoreCustomer('${c.id}')">Restore</button>
+            <button class="danger small" onclick="deleteCustomer('${c.id}')">Delete Permanently</button>
+          </div>
+        </td>
+      </tr>`;
+    });
+    html += `</tbody></table></div>`;
+  }
+
+  el.innerHTML = html;
+}
+
+function openLeaveModal(id){
+  const c = customers.find(x=>x.id===id);
+  if(!c) return;
+  const modalBg = document.createElement('div');
+  modalBg.className = 'modal-bg';
+  modalBg.innerHTML = `
+    <div class="modal">
+      <h3>Mark "${c.name}" as Left</h3>
+      <p style="color:var(--muted); font-size:13px; margin-top:-6px;">
+        Their record and invoice history will be kept in the Former Customers archive, and no new invoices will be generated for them.
+      </p>
+      <div class="field"><label>Date Left</label><input id="leave-date" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+      <div class="modal-actions">
+        <button class="secondary" onclick="this.closest('.modal-bg').remove()">Cancel</button>
+        <button class="danger" onclick="confirmCustomerLeft('${id}')">Confirm</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modalBg);
+}
+
+async function confirmCustomerLeft(id){
+  const leaveDate = document.getElementById('leave-date').value;
+  if(!leaveDate){ toast('⚠️ Please pick a date'); return; }
+  const c = customers.find(x=>x.id===id);
+  if(!c) return;
+  c.status = 'left';
+  c.leftDate = leaveDate;
+  await saveCustomers();
+  document.querySelector('.modal-bg').remove();
+  renderCustomers();
+  renderDashboard();
+  toast('📦 Moved to Former Customers');
+}
+
+async function restoreCustomer(id){
+  const c = customers.find(x=>x.id===id);
+  if(!c) return;
+  c.status = 'active';
+  delete c.leftDate;
+  await saveCustomers();
+  renderCustomers();
+  renderDashboard();
+  toast('✅ Customer restored as active');
+}
+
+function spaceRowHtml(s){
+  return `
+    <div class="card space-row" style="margin-bottom:10px; padding:12px;">
+      <div class="row" style="justify-content:space-between; align-items:flex-start; flex-wrap:nowrap;">
+        <div style="flex:1; display:flex; gap:8px; flex-wrap:wrap;">
+          <div class="field" style="flex:1; min-width:90px;"><label>Floor</label><input class="s-floor" list="floor-options" value="${s.floor||''}"></div>
+          <div class="field" style="flex:1; min-width:90px;"><label>Size</label>
+            <select class="s-size">
+              <option value="">— None —</option>
+              <option value="Small" ${s.size==='Small'?'selected':''}>Small</option>
+              <option value="Medium" ${s.size==='Medium'?'selected':''}>Medium</option>
+              <option value="Large" ${s.size==='Large'?'selected':''}>Large</option>
+            </select>
+          </div>
+          <div class="field" style="flex:1; min-width:90px;"><label>Unit #</label><input class="s-unit" value="${s.unit||''}"></div>
+        </div>
+        <button class="danger small" onclick="removeSpaceRow(this)" style="margin-top:19px;">✕</button>
+      </div>
+    </div>
+  `;
+}
+
+function addSpaceRow(){
+  setTimeout(()=>{
+    const list = document.getElementById('spaces-list');
+    if(!list) return;
+    const temp = document.createElement('div');
+    temp.innerHTML = spaceRowHtml({floor:'', size:'', unit:''});
+    list.appendChild(temp.firstElementChild);
+  }, 60);
+}
+
+function removeSpaceRow(btn){
+  setTimeout(()=>{
+    const row = btn.closest('.space-row');
+    if(row) row.remove();
+  }, 60);
+}
+
+function collectSpacesFromForm(){
+  const rows = document.querySelectorAll('#spaces-list .space-row');
+  return Array.from(rows).map(row=>({
+    floor: row.querySelector('.s-floor').value.trim(),
+    size: row.querySelector('.s-size').value,
+    unit: row.querySelector('.s-unit').value.trim(),
+  })).filter(s=>s.floor || s.size || s.unit);
+}
+
+function openCustomerModal(id){
+  const editing = id ? customers.find(c=>c.id===id) : null;
+  const spaces = editing ? getCustomerSpaces(editing) : [{floor:'', size:'', unit:''}];
+  const modalBg = document.createElement('div');
+  modalBg.className = 'modal-bg';
+  modalBg.innerHTML = `
+    <div class="modal" style="max-height:85vh; overflow-y:auto;">
+      <h3>${editing ? 'Edit Customer' : 'Add New Customer'}</h3>
+      <div class="field"><label>Name</label><input id="m-name" value="${editing?editing.name:''}"></div>
+      <div class="field"><label>Phone Number</label><input id="m-phone" value="${editing?editing.phone||'':''}"></div>
+      <div class="field"><label>Monthly Rent (EGP)</label><input id="m-fee" type="number" value="${editing?editing.fee:''}"></div>
+      <div class="field"><label>Entry Date</label><input id="m-entry" type="date" value="${editing?editing.entryDate||'':new Date().toISOString().slice(0,10)}"></div>
+      <datalist id="floor-options">${(settings.floors||[]).map(f=>`<option value="${f.name}">`).join('')}</datalist>
+      <div class="field"><label>Storage Spaces</label></div>
+      <div id="spaces-list">${spaces.map(s=>spaceRowHtml(s)).join('')}</div>
+      <button class="secondary small" onclick="addSpaceRow()">+ Add Space</button>
+      <div class="modal-actions">
+        <button class="secondary" onclick="this.closest('.modal-bg').remove()">Cancel</button>
+        <button onclick="saveCustomerModal('${id||''}')">${editing?'Save':'Add'}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modalBg);
+}
+
+async function saveCustomerModal(id){
+  const name = document.getElementById('m-name').value.trim();
+  const phone = document.getElementById('m-phone').value.trim();
+  const fee = parseFloat(document.getElementById('m-fee').value);
+  const entryDate = document.getElementById('m-entry').value;
+  const spaces = collectSpacesFromForm();
+  if(!name || isNaN(fee)){ toast('⚠️ Name and rent are required'); return; }
+
+  if(id){
+    const c = customers.find(x=>x.id===id);
+    c.name=name; c.phone=phone; c.spaces=spaces; c.fee=fee; c.entryDate=entryDate;
+    delete c.floor; delete c.size; delete c.unit;
+  } else {
+    customers.push({ id: 'c'+Date.now(), name, phone, spaces, fee, entryDate, status: 'active' });
+  }
+  await saveCustomers();
+  document.querySelector('.modal-bg').remove();
+  renderCustomers();
+  renderDashboard();
+  toast('✅ Saved');
+}
+
+async function deleteCustomer(id){
+  showConfirm('Are you sure? This customer and all their invoices will be deleted permanently.', async ()=>{
+    customers = customers.filter(c=>c.id!==id);
+    Object.keys(invoices).forEach(month=>{
+      invoices[month] = invoices[month].filter(i=>i.customerId!==id);
+    });
+    await saveCustomers();
+    await saveInvoices();
+    renderCustomers();
+    renderDashboard();
+    toast('🗑️ Deleted');
+  });
+}
+
+// ---------- Settings ----------
+function renderSettings(){
+  const el = document.getElementById('settings');
+  const floors = settings.floors || [];
+  el.innerHTML = `
+    <div class="card">
+      <h3>🏢 Storage Inventory</h3>
+      <p style="color:var(--muted); font-size:13px; margin-top:-6px;">
+        Define how many small/medium/large units each floor has. When you add a customer with a matching floor and size, it's automatically counted here.
+      </p>
+      <div id="floors-list">
+        ${floors.map((f,idx)=>floorRowHtml(f,idx)).join('') || '<p style="color:var(--muted); font-size:13px;">No floors added yet.</p>'}
+      </div>
+      <div class="row">
+        <button class="secondary" onclick="addFloorRow()">+ Add Floor</button>
+        <button onclick="saveFloorsForm()">Save Inventory</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Overdue Tracking</h3>
+      <div class="field"><label>Number of days before a customer counts as "Overdue"</label><input id="s-grace" type="number" value="${settings.gracePeriodDays}"></div>
+      <p style="color:var(--muted); font-size:12px; margin-top:-6px;">This is just a visual flag, no fee is calculated.</p>
+      <h3>Company Info (shown on invoice)</h3>
+      <div class="field"><label>Company Name</label><input id="s-company" value="${settings.companyName}"></div>
+      <div class="field"><label>Phone</label><input id="s-phone" value="${settings.companyPhone}"></div>
+      <div class="field"><label>Address</label><input id="s-address" value="${settings.companyAddress}"></div>
+      <button onclick="saveSettingsForm()">Save Settings</button>
+    </div>
+
+    <div class="card">
+      <h3>💾 Backup</h3>
+      <p style="color:var(--muted); font-size:13px; margin-top:-6px;">
+        Data is saved on this device only. If you switch devices or worry about losing data, make a backup periodically.
+      </p>
+      <div class="row">
+        <button onclick="exportBackup()">⬇️ Export Backup</button>
+        <button class="secondary" onclick="document.getElementById('backup-file').click()">⬆️ Import Backup</button>
+        <input type="file" id="backup-file" accept=".json" style="display:none" onchange="importBackup(event)">
+      </div>
+      <p style="color:var(--muted); font-size:12px; margin-top:10px;">
+        Last backup: ${localStorage.getItem(STORAGE_PREFIX+'lastBackup') ? new Date(localStorage.getItem(STORAGE_PREFIX+'lastBackup')).toLocaleString() : 'No backup yet'}
+      </p>
+    </div>
+  `;
+}
+
+function exportBackup(){
+  const backup = {
+    customers, invoices, settings,
+    exportedAt: new Date().toISOString(),
+    app: 'The Warehouse Invoice System'
+  };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `warehouse-backup-${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  localStorage.setItem(STORAGE_PREFIX+'lastBackup', new Date().toISOString());
+  toast('✅ Backup exported');
+  renderSettings();
+}
+
+async function importBackup(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  try{
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if(!data.customers || !data.invoices){ toast('⚠️ This file is not a valid backup'); return; }
+    showConfirm(`This will replace all current data with this backup (${data.customers.length} customers). Are you sure?`, async ()=>{
+      customers = data.customers;
+      invoices = data.invoices;
+      settings = {...settings, ...(data.settings||{})};
+      await saveCustomers();
+      await saveInvoices();
+      await saveSettings();
+      document.getElementById('subtitle').textContent = `${customers.length} customers registered`;
+      renderAll();
+      toast('✅ Data imported successfully');
+    });
+  }catch(e){
+    toast('⚠️ Failed to read file');
+  }
+  event.target.value = '';
+}
+
+async function saveSettingsForm(){
+  settings.gracePeriodDays = parseInt(document.getElementById('s-grace').value) || 5;
+  settings.companyName = document.getElementById('s-company').value.trim();
+  settings.companyPhone = document.getElementById('s-phone').value.trim();
+  settings.companyAddress = document.getElementById('s-address').value.trim();
+  await saveSettings();
+  renderDashboard();
+  toast('✅ Settings saved');
+}
+
+// ---------- WhatsApp reminder ----------
+function normalizePhone(phone){
+  let p = phone.replace(/[^\d+]/g, '');
+  if(p.startsWith('+')) p = p.slice(1);
+  else if(p.startsWith('00')) p = p.slice(2);
+  else if(p.startsWith('0')) p = '20' + p.slice(1); // Egypt local -> country code
+  else if(!p.startsWith('20')) p = '20' + p;
+  return p;
+}
+
+function sendWhatsApp(month, customerId){
+  const c = customers.find(x=>x.id===customerId);
+  const inv = invoices[month].find(i=>i.customerId===customerId);
+  if(!c || !inv) return;
+  if(!c.phone){ toast('⚠️ No phone number for this customer'); return; }
+
+  const phone = normalizePhone(c.phone);
+  if(phone.length < 11 || phone.length > 14){
+    toast('⚠️ Phone number looks invalid (' + c.phone + '). Fix it on the Customers page, e.g. 01012345678');
+    return;
+  }
+
+  const overdue = isOverdue(month, inv);
+  const total = c.fee;
+  const company = settings.companyName || 'The Warehouse';
+  const due = dueDateOf(month).toLocaleDateString();
+
+  let msg;
+  if(inv.status==='paid'){
+    msg = `Hello ${c.name}, we've received your payment for ${monthLabel(month)} of ${c.fee.toLocaleString()} EGP. Thank you for your business with ${company}.`;
+  } else if(overdue){
+    msg = `Hello ${c.name}, this is ${company}.\nThis is a reminder that your storage invoice for ${monthLabel(month)} has not been paid yet.\nAmount due: ${total.toLocaleString()} EGP.\nPlease settle it as soon as possible. Thank you for your understanding.`;
+  } else {
+    msg = `Hello ${c.name}, this is ${company}.\nThis is a reminder about your storage invoice for ${monthLabel(month)} of ${c.fee.toLocaleString()} EGP.\nPayment due by ${due}.\nThank you for your business.`;
+  }
+
+  const url = `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}`;
+  window.open(url, '_blank');
+}
+
+// ---------- PDF export ----------
+function exportInvoicePDF(month, customerId){
+  const c = customers.find(x=>x.id===customerId);
+  const inv = invoices[month].find(i=>i.customerId===customerId);
+  if(!c || !inv) return;
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const overdue = isOverdue(month, inv);
+  const total = c.fee;
+  const spaces = getCustomerSpaces(c);
+
+  doc.setFontSize(20);
+  doc.text(settings.companyName || 'The Warehouse', 20, 20);
+  doc.setFontSize(10);
+  doc.text(settings.companyPhone || '', 20, 27);
+  doc.text(settings.companyAddress || '', 20, 33);
+
+  doc.setFontSize(14);
+  doc.text('INVOICE', 160, 20);
+  doc.setFontSize(10);
+  doc.text('Month: ' + month, 160, 27);
+  doc.text('Issue date: ' + issueDateOf(month).toISOString().slice(0,10), 160, 33);
+  doc.text('Due date: ' + dueDateOf(month).toISOString().slice(0,10), 160, 39);
+
+  doc.line(20, 45, 190, 45);
+
+  doc.setFontSize(12);
+  doc.text('Bill To:', 20, 55);
+  doc.setFontSize(11);
+  let y = 62;
+  doc.text(c.name, 20, y); y += 6;
+  if(c.phone){ doc.text('Phone: ' + c.phone, 20, y); y += 6; }
+  spaces.forEach((s,i)=>{
+    const parts = [];
+    if(s.floor) parts.push('Floor ' + s.floor);
+    if(s.size) parts.push(s.size);
+    if(s.unit) parts.push('Unit ' + s.unit);
+    if(parts.length){ doc.text('Space ' + (i+1) + ': ' + parts.join(', '), 20, y); y += 6; }
+  });
+
+  y += 2;
+  doc.line(20, y, 190, y);
+  y += 8;
+
+  doc.setFontSize(11);
+  doc.text('Description', 20, y);
+  doc.text('Amount (EGP)', 160, y);
+  y += 3;
+  doc.line(20, y, 190, y);
+  y += 7;
+
+  doc.text('Storage rental - ' + month, 20, y);
+  doc.text(c.fee.toLocaleString(), 165, y);
+  y += 8;
+
+  doc.line(20, y+2, 190, y+2);
+  y += 10;
+  doc.setFontSize(13);
+  doc.text('Total Due:', 20, y);
+  doc.text(total.toLocaleString() + ' EGP', 160, y);
+
+  y += 12;
+  doc.setFontSize(10);
+  doc.text('Status: ' + (inv.status==='paid' ? 'PAID on ' + inv.paidDate : (overdue ? 'OVERDUE' : 'UNPAID')), 20, y);
+
+  doc.save(`invoice-${c.name.replace(/\s+/g,'_')}-${month}.pdf`);
+}
+
+// Auto-unlock if this tab already verified the PIN earlier in this session
+if(sessionStorage.getItem(PIN_SESSION_KEY) === "1"){
+  unlockApp();
+}
+
+</script>
+</body>
+</html>
